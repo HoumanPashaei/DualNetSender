@@ -110,7 +110,10 @@ X-Request-ID: 1d8031892e...
 Server: ArvanCloud
 ...
 
-{"Parameter-1":"Value-1","Parameter-2":"Value-2"}
+{
+    "Parameter-1":"Value-1",
+    "Parameter-2":"Value-2"
+}
 ```
 
 - If the body is compressed (`br`, `gzip`, `deflate`), the tool tries to **decode** it first.
