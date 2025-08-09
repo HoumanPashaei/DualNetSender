@@ -70,7 +70,7 @@ pip install -r requirements.txt
 ```
 .
 ├── Dual_Net_Sender.py   # main tool
-├── requirements.txt     # dependencies
+├── Requirements.txt     # dependencies
 └── README.md            # this document
 ```
 
@@ -207,7 +207,7 @@ python Dual_Net_Sender.py \
 | `--wifi-out` | ✅ | `--wifi-out ./out/wifi.http` | Base filename for Wi‑Fi output transcript. |
 | `--verify-tls` | ▫️ | `--verify-tls` | Enable certificate verification for HTTPS (recommended). If omitted, warnings are suppressed automatically. |
 | `--timeout <seconds>` | ▫️ | `--timeout 20` | Per‑request timeout. |
-| `--proxy <url>` | ▫️ | `--proxy http://127.0.0.1:8080` | Intercept both requests & the public‑IP checks through a proxy. This feature is for debug mode only. When using this feature, requests will be sent from an interface.|
+| `--proxy <url>` | ▫️ | `--proxy http://127.0.0.1:8080` | Intercept both requests & the public‑IP checks through a proxy. **This feature is for debug mode only. When using this feature, requests will be sent from an interface.**|
 | `--send-mode {sequential,concurrent}` | ▫️ | `--send-mode concurrent` | Choose between **sequential** or **barrier‑synchronized** concurrent sending. |
 | `--iterations <N>` | ▫️ | `--iterations 100` | Run N synchronized pairs (useful for race testing). |
 | `--sleep-ms-between-iters <ms>` | ▫️ | `--sleep-ms-between-iters 0` | Sleep between iterations (helps with rate limits or server cooldowns). |
