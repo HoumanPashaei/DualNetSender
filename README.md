@@ -166,7 +166,7 @@ python Dual_Net_Sender.py \
 
 ---
 
-## 📨 Request file format (input)
+## 📨 Request File format (input)
 
 Each request file should be a **raw HTTP request** (Burp export):
 
@@ -188,8 +188,12 @@ Content-Length: 27
 - The tool **ignores** any `Content-Length` header (the client computes it).
 
 ---
+## 📂 Output PoC
 
-## 📄 Output format (one file per request per iteration)
+![PoC](./PoC.png "PoC")
+
+---
+## 📄 Output Format (one file per request per iteration)
 
 Each output file is an HTTP transcript:
 
@@ -220,7 +224,7 @@ The tool fetches `https://ifconfig.io/ip` on each path and prints the observed *
 
 ---
 
-## ⏱ Race‑condition testing notes
+## ⏱ Race‑Condition Testing Notes
 
 - The barrier ensures both threads hit the network stack **at the same instant**. After that, timing jitter can still occur due to OS scheduling, DNS/TLS handshakes, NIC/driver, and routing.
 - To improve the odds of triggering races: use **concurrent** mode with **many iterations** (e.g., `--iterations 200`), minimal think time (`--sleep-ms-between-iters 0`), and keep paths warm (reuse the same host and session state if applicable). Avoid the proxy if you don’t need interception.
@@ -228,7 +232,7 @@ The tool fetches `https://ifconfig.io/ip` on each path and prints the observed *
 
 ---
 
-## 🖥 Platform notes
+## 🖥 Platform Notes
 
 - 🔹 **Windows**: Binding by **local IP** works out of the box. For interface‑name binding (`pycurl`), install a compatible `libcurl` and SSL backend.
 - 🔹 **macOS / Linux**: Both modes are supported. Interface names look like `en0`, `en1` (macOS) or `eth0`, `wlan0` (Linux).
