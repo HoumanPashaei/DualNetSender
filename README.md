@@ -17,14 +17,16 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
   Header: Value
   ...
 
-  { "Parameter-1": "Vaule-1" }
+  { 
+      "Parameter-1": "Vaule-1"
+  }
   ```
 - **Auto‑decode responses**: Transparently decodes `Content‑Encoding: br` (Brotli), `gzip`, and `deflate` when possible. If the decoded body is UTF‑8, it’s written as text; otherwise raw bytes are written.
 - **Proxy support**: Route everything through an intercepting proxy (e.g., Burp) with `--proxy http://127.0.0.1:8080`.
 - **Public IP check**: Shows the public IP observed for each path via `https://ifconfig.io/ip`, so you can confirm distinct egresses.
 - **Colorized console**: Uses `colorama` to highlight status and steps.
 - **TLS control**: `--verify-tls` enables certificate verification (recommended). If disabled, HTTPS warnings are suppressed for cleaner output.
-
+- **Note - Proxy Support**: This feature is for debug mode only. When using this feature, requests will be sent from an interface. 
 ---
 
 ## How it works (high‑level)
@@ -88,7 +90,9 @@ Content-Type: application/json
 Accept: application/json
 Content-Length: 27
 
-{"Param-1":"Value-1"}
+{
+    "Param-1":"Value-1"
+}
 ```
 
 - Absolute URLs in the request line (e.g., `POST https://example.com/api ...`) are also supported.
@@ -203,7 +207,7 @@ python Dual_Net_Sender.py \
 | `--wifi-out` | ✅ | `--wifi-out ./out/wifi.http` | Base filename for Wi‑Fi output transcript. |
 | `--verify-tls` | ▫️ | `--verify-tls` | Enable certificate verification for HTTPS (recommended). If omitted, warnings are suppressed automatically. |
 | `--timeout <seconds>` | ▫️ | `--timeout 20` | Per‑request timeout. |
-| `--proxy <url>` | ▫️ | `--proxy http://127.0.0.1:8080` | Intercept both requests & the public‑IP checks through a proxy. |
+| `--proxy <url>` | ▫️ | `--proxy http://127.0.0.1:8080` | Intercept both requests & the public‑IP checks through a proxy. This feature is for debug mode only. When using this feature, requests will be sent from an interface.|
 | `--send-mode {sequential,concurrent}` | ▫️ | `--send-mode concurrent` | Choose between **sequential** or **barrier‑synchronized** concurrent sending. |
 | `--iterations <N>` | ▫️ | `--iterations 100` | Run N synchronized pairs (useful for race testing). |
 | `--sleep-ms-between-iters <ms>` | ▫️ | `--sleep-ms-between-iters 0` | Sleep between iterations (helps with rate limits or server cooldowns). |
