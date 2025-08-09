@@ -1,4 +1,4 @@
-# Race Tester — Simultaneous Requests from Multiple Networks
+# 🚀 Race Tester — Simultaneous Requests from Multiple Networks
 
 A Python tool to send **two HTTP requests at (virtually) the same time** through **two different network paths** (e.g., LAN & Wi‑Fi). It’s designed to help you probe **race‑condition** behavior in web applications and APIs using real request data (e.g., raw requests exported from Burp Suite).
 
@@ -6,12 +6,12 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
 
 ---
 
-## Features
+## ✨ Features
 
-- **Two paths, two egresses**: Bind each request to a **local source IP** (portable) or to a **specific interface** (via `pycurl`) so the OS routes them over different networks.
-- **True simultaneous fire (race mode)**: Starts both requests on a **synchronization barrier**, so they enter the network stack at the same instant. Supports multiple **iterations** to improve odds of hitting a race.
-- **Burp‑style raw requests**: Read requests exactly as exported from Burp (`METHOD /path HTTP/1.1`, headers, blank line, raw body).
-- **HTTP transcript output**: One output file per request per iteration in a real HTTP transcript format:
+- 🔹 **Two paths, two egresses**: Bind each request to a **local source IP** (portable) or to a **specific interface** (via `pycurl`) so the OS routes them over different networks.
+- 🔹 **True simultaneous fire (race mode)**: Starts both requests on a **synchronization barrier**, so they enter the network stack at the same instant. Supports multiple **iterations** to improve odds of hitting a race.
+- 🔹 **Burp‑style raw requests**: Read requests exactly as exported from Burp (`METHOD /path HTTP/1.1`, headers, blank line, raw body).
+- 🔹 **HTTP transcript output**: One output file per request per iteration in a real HTTP transcript format:
   ```
   HTTP/2 200 OK
   Header: Value
@@ -21,15 +21,15 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
       "Parameter-1": "Vaule-1"
   }
   ```
-- **Auto‑decode responses**: Transparently decodes `Content‑Encoding: br` (Brotli), `gzip`, and `deflate` when possible. If the decoded body is UTF‑8, it’s written as text; otherwise raw bytes are written.
-- **Proxy support**: Route everything through an intercepting proxy (e.g., Burp) with `--proxy http://127.0.0.1:8080`.
-- **Public IP check**: Shows the public IP observed for each path via `https://ifconfig.io/ip`, so you can confirm distinct egresses.
-- **Colorized console**: Uses `colorama` to highlight status and steps.
-- **TLS control**: `--verify-tls` enables certificate verification (recommended). If disabled, HTTPS warnings are suppressed for cleaner output.
-- **Note - Proxy Support**: This feature is for debug mode only. When using this feature, requests will be sent from an interface. 
+- 🔹 **Auto‑decode responses**: Transparently decodes `Content‑Encoding: br` (Brotli), `gzip`, and `deflate` when possible. If the decoded body is UTF‑8, it’s written as text; otherwise raw bytes are written.
+- 🔹 **Proxy support**: Route everything through an intercepting proxy (e.g., Burp) with `--proxy http://127.0.0.1:8080`.
+- 🔹 **Public IP check**: Shows the public IP observed for each path via `https://ifconfig.io/ip`, so you can confirm distinct egresses.
+- 🔹 **Colorized console**: Uses `colorama` to highlight status and steps.
+- 🔹 **TLS control**: `--verify-tls` enables certificate verification (recommended). If disabled, HTTPS warnings are suppressed for cleaner output.
+- 🔹 **Note - Proxy Support**: This feature is for debug mode only. When using this feature, requests will be sent from an interface. 
 ---
 
-## How it works (high‑level)
+## 🛠 How it works (high‑level)
 
 1. **Parse requests** from two raw files (Burp format).
 2. **Build URLs** using the file’s absolute URL or its `Host` header + `--*-scheme`.
@@ -39,7 +39,7 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
 
 ---
 
-## Requirements
+## 📦 Requirements
 
 - Python 3.8+
 - Packages:
@@ -65,7 +65,7 @@ pip install -r Requirements.txt
 
 ---
 
-## Usage
+## 💻 Usage
 
 ### Basic (bind by local IP addresses — portable)
 
@@ -131,7 +131,7 @@ python Dual_Net_Sender.py \
 
 ---
 
-## CLI options (complete)
+## ⚙️ CLI options (complete)
 
 | Option | Required | Example | Purpose |
 |---|---|---|---|
@@ -153,7 +153,7 @@ python Dual_Net_Sender.py \
 
 ---
 
-## File layout
+## 📂 File layout
 
 ```
 .
@@ -166,7 +166,7 @@ python Dual_Net_Sender.py \
 
 ---
 
-## Request file format (input)
+## 📨 Request file format (input)
 
 Each request file should be a **raw HTTP request** (Burp export):
 
@@ -189,7 +189,7 @@ Content-Length: 27
 
 ---
 
-## Output format (one file per request per iteration)
+## 📄 Output format (one file per request per iteration)
 
 Each output file is an HTTP transcript:
 
@@ -214,13 +214,13 @@ Server: ArvanCloud
 
 ---
 
-## Verifying different egress IPs
+## 🌐 Verifying different egress IPs
 
 The tool fetches `https://ifconfig.io/ip` on each path and prints the observed **public IP**. If both paths exit through the same NAT, they may have the **same public IP** even if you bound different local IPs. For stricter separation, use different uplinks (e.g., Wi‑Fi vs. cellular hotspot, or a split‑tunnel VPN bound to one interface).
 
 ---
 
-## Race‑condition testing notes
+## ⏱ Race‑condition testing notes
 
 - The barrier ensures both threads hit the network stack **at the same instant**. After that, timing jitter can still occur due to OS scheduling, DNS/TLS handshakes, NIC/driver, and routing.
 - To improve the odds of triggering races: use **concurrent** mode with **many iterations** (e.g., `--iterations 200`), minimal think time (`--sleep-ms-between-iters 0`), and keep paths warm (reuse the same host and session state if applicable). Avoid the proxy if you don’t need interception.
@@ -228,22 +228,22 @@ The tool fetches `https://ifconfig.io/ip` on each path and prints the observed *
 
 ---
 
-## Platform notes
+## 🖥 Platform notes
 
-- **Windows**: Binding by **local IP** works out of the box. For interface‑name binding (`pycurl`), install a compatible `libcurl` and SSL backend.
-- **macOS / Linux**: Both modes are supported. Interface names look like `en0`, `en1` (macOS) or `eth0`, `wlan0` (Linux).
+- 🔹 **Windows**: Binding by **local IP** works out of the box. For interface‑name binding (`pycurl`), install a compatible `libcurl` and SSL backend.
+- 🔹 **macOS / Linux**: Both modes are supported. Interface names look like `en0`, `en1` (macOS) or `eth0`, `wlan0` (Linux).
 
 ---
 
-## Troubleshooting
+## 🐞 Troubleshooting
 
-- **Output looks like gibberish**: It’s probably compressed (`Content‑Encoding: br/gzip/deflate`). Install `brotli` (or `brotlicffi`). The tool auto‑decodes and writes readable text when possible.
-- **Both paths show the same public IP**: Your uplinks share a NAT. Use truly separate egresses (hotspot/VPN/split‑tunnel).
-- **`pycurl` install issues**: Skip interface‑name binding and use **local IP** binding (works with `requests` alone).
-- **TLS warnings**: Use `--verify-tls` to enable certificate verification. If omitted, the tool suppresses the warning automatically.
+- 🔹 **Output looks like gibberish**: It’s probably compressed (`Content‑Encoding: br/gzip/deflate`). Install `brotli` (or `brotlicffi`). The tool auto‑decodes and writes readable text when possible.
+- 🔹 **Both paths show the same public IP**: Your uplinks share a NAT. Use truly separate egresses (hotspot/VPN/split‑tunnel).
+- 🔹 **`pycurl` install issues**: Skip interface‑name binding and use **local IP** binding (works with `requests` alone).
+- 🔹 **TLS warnings**: Use `--verify-tls` to enable certificate verification. If omitted, the tool suppresses the warning automatically.
 
 
 
-## Disclaimer
+## ⚠️ Disclaimer
 
 This tool is for **Authorized Testing and Research**. 
