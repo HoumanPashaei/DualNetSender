@@ -48,7 +48,7 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
   - `brotli` *or* `brotlicffi` — **optional**, needed to decode `Content‑Encoding: br`
   - `pycurl` — **optional**, only needed if you prefer binding by interface name (e.g., `eth0`, `en0`)
 
-Create a `requirements.txt`:
+Create a `Requirements.txt`:
 ```txt
 requests
 colorama
@@ -58,7 +58,7 @@ pycurl
 
 Install:
 ```bash
-pip install -r requirements.txt
+pip install -r Requirements.txt
 ```
 
 > **Note on `pycurl`:** Installing on Windows/macOS/Linux may require system `libcurl`/SSL headers. If it’s inconvenient, you can bind by **local IP** and skip `pycurl` entirely.
