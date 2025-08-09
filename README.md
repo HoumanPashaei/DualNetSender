@@ -65,67 +65,6 @@ pip install -r Requirements.txt
 
 ---
 
-## File layout
-
-```
-.
-├── Dual_Net_Sender.py   # main tool
-├── Requirements.txt     # dependencies
-└── README.md            # this document
-```
-
-> If you prefer a different filename (e.g., `race_tester.py`), adjust commands accordingly.
-
----
-
-## Request file format (input)
-
-Each request file should be a **raw HTTP request** (Burp export):
-
-```
-POST /api/v1/example HTTP/1.1
-Host: example.com
-User-Agent: Mozilla/5.0 ...
-Content-Type: application/json
-Accept: application/json
-Content-Length: 27
-
-{
-    "Param-1":"Value-1"
-}
-```
-
-- Absolute URLs in the request line (e.g., `POST https://example.com/api ...`) are also supported.
-- Bodies can be **JSON**, **x‑www‑form‑urlencoded**, **multipart**, etc. The raw body is sent as‑is.
-- The tool **ignores** any `Content-Length` header (the client computes it).
-
----
-
-## Output format (one file per request per iteration)
-
-Each output file is an HTTP transcript:
-
-```
-HTTP/2 200 OK
-Date: Sat, 09 Aug 2025 10:08:17 GMT
-Content-Type: application/json; charset=utf-8
-Vary: Accept-Encoding
-X-Request-ID: 1d8031892e...
-Server: ArvanCloud
-...
-
-{
-    "Parameter-1":"Value-1",
-    "Parameter-2":"Value-2"
-}
-```
-
-- If the body is compressed (`br`, `gzip`, `deflate`), the tool tries to **decode** it first.
-- If the decoded body is UTF‑8, it is written as **text**; otherwise raw bytes are written.
-- When running multiple iterations, files are suffixed: `Lan_Out.001.http`, `Lan_Out.002.http`, etc.
-
----
-
 ## Usage
 
 ### Basic (bind by local IP addresses — portable)
@@ -211,6 +150,67 @@ python Dual_Net_Sender.py \
 | `--send-mode {sequential,concurrent}` | ▫️ | `--send-mode concurrent` | Choose between **sequential** or **barrier‑synchronized** concurrent sending. |
 | `--iterations <N>` | ▫️ | `--iterations 100` | Run N synchronized pairs (useful for race testing). |
 | `--sleep-ms-between-iters <ms>` | ▫️ | `--sleep-ms-between-iters 0` | Sleep between iterations (helps with rate limits or server cooldowns). |
+
+---
+
+## File layout
+
+```
+.
+├── Dual_Net_Sender.py   # main tool
+├── Requirements.txt     # dependencies
+└── README.md            # this document
+```
+
+> If you prefer a different filename (e.g., `race_tester.py`), adjust commands accordingly.
+
+---
+
+## Request file format (input)
+
+Each request file should be a **raw HTTP request** (Burp export):
+
+```
+POST /api/v1/example HTTP/1.1
+Host: example.com
+User-Agent: Mozilla/5.0 ...
+Content-Type: application/json
+Accept: application/json
+Content-Length: 27
+
+{
+    "Param-1":"Value-1"
+}
+```
+
+- Absolute URLs in the request line (e.g., `POST https://example.com/api ...`) are also supported.
+- Bodies can be **JSON**, **x‑www‑form‑urlencoded**, **multipart**, etc. The raw body is sent as‑is.
+- The tool **ignores** any `Content-Length` header (the client computes it).
+
+---
+
+## Output format (one file per request per iteration)
+
+Each output file is an HTTP transcript:
+
+```
+HTTP/2 200 OK
+Date: Sat, 09 Aug 2025 10:08:17 GMT
+Content-Type: application/json; charset=utf-8
+Vary: Accept-Encoding
+X-Request-ID: 1d8031892e...
+Server: ArvanCloud
+...
+
+{
+    "Parameter-1":"Value-1",
+    "Parameter-2":"Value-2"
+}
+```
+
+- If the body is compressed (`br`, `gzip`, `deflate`), the tool tries to **decode** it first.
+- If the decoded body is UTF‑8, it is written as **text**; otherwise raw bytes are written.
+- When running multiple iterations, files are suffixed: `Lan_Out.001.http`, `Lan_Out.002.http`, etc.
 
 ---
 
