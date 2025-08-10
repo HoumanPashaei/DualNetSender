@@ -255,7 +255,7 @@ def send_via_local_ip(local_ip: str, method: str, url: str, headers: Dict[str, s
 
 
 # =========================
-# Binding by interface (pycurl)
+# Binding by Interface (pycurl)
 # =========================
 
 def public_ip_via_interface(iface: str, timeout: int, verify_tls: bool, pycurl_proxy: Optional[Dict[str, str]]) -> Tuple[int, str]:

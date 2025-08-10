@@ -15,7 +15,7 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
 - 🔹 **HTTP transcript output**: One output file per request per iteration in a real HTTP transcript format:
   ```
   HTTP/2 200 OK
-  Header: Value
+  Content-Type: Application/json
   ...
 
   { 
