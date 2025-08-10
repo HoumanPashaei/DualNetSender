@@ -10,6 +10,7 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
 
 - 🔹 **Two paths, two egresses**: Bind each request to a **local source IP** (portable) or to a **specific interface** (via `pycurl`) so the OS routes them over different networks.
 - 🔹 **True simultaneous fire (race mode)**: Starts both requests on a **synchronization barrier**, so they enter the network stack at the same instant. Supports multiple **iterations** to improve odds of hitting a race.
+- 🔹 **Burst‑All firing**: with `--send-mode concurrent --burst-all`, the tool fires **all requests from all iterations at the same instant** (e.g., 10 iterations ⇒ 20 requests launched together).
 - 🔹 **Burp‑style raw requests**: Read requests exactly as exported from Burp (`METHOD /path HTTP/1.1`, headers, blank line, raw body).
 - 🔹 **HTTP transcript output**: One output file per request per iteration in a real HTTP transcript format:
   ```
@@ -34,7 +35,9 @@ A Python tool to send **two HTTP requests at (virtually) the same time** through
 1. **Parse requests** from two raw files (Burp format).
 2. **Build URLs** using the file’s absolute URL or its `Host` header + `--*-scheme`.
 3. **Bind path** either by **local IP** (via `requests` + custom adapter) or by **interface name** (via `pycurl`).
-4. **Race mode**: Two threads wait on a **barrier** and then issue requests at the same instant. Repeat for `--iterations N` if desired.
+4. **Race mode**: Two options
+   - **Pairwise concurrent**: per iteration, two threads wait on a barrier and issue LAN+Wi‑Fi at the same instant.
+   - **Burst‑All**: create `2 × iterations` threads and release a single barrier so **all requests across all iterations** launch together.
 5. **Write output** as a single HTTP transcript per request per iteration: status line, headers, blank line, decoded body (if possible). Filenames get a **`.NNN`** suffix per iteration.
 
 ---
@@ -114,6 +117,24 @@ python Dual_Net_Sender.py \
   --iterations 10 \
   --proxy http://127.0.0.1:8080
 ```
+### 🔥 Burst‑All (fire **all iterations** at once)
+
+```bash
+python Dual_Net_Sender.py \
+  --os linux \
+  --lan 192.168.1.23 \
+  --wifi 10.0.0.55 \
+  --lan-request ./req_lan.txt \
+  --wifi-request ./req_wifi.txt \
+  --lan-scheme https \
+  --wifi-scheme https \
+  --lan-out ./out/lan.http \
+  --wifi-out ./out/wifi.http \
+  --send-mode concurrent \
+  --iterations 10 \
+  --burst-all
+```
+
 
 ### Sequential mode
 
@@ -245,7 +266,7 @@ The tool fetches `https://ifconfig.io/ip` on each path and prints the observed *
 - 🔹 **Both paths show the same public IP**: Your uplinks share a NAT. Use truly separate egresses (hotspot/VPN/split‑tunnel).
 - 🔹 **`pycurl` install issues**: Skip interface‑name binding and use **local IP** binding (works with `requests` alone).
 - 🔹 **TLS warnings**: Use `--verify-tls` to enable certificate verification. If omitted, the tool suppresses the warning automatically.
-
+- 🔹 **Using `--burst-all` stalls or errors**: The burst may exceed local socket/file limits or proxy capacity. Reduce `--iterations`, remove the proxy, or raise OS limits.
 
 
 ## ⚠️ Disclaimer

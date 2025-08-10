@@ -3,20 +3,15 @@
 dual_net_sender.py
 
 Send TWO raw HTTP requests (Burp-style files) via DIFFERENT network paths
-(LAN & Wi‑Fi), SEQUENTIALLY or EXACTLY SIMULTANEOUS (race test), with iterations.
-
-Output: ONE file per request per iteration in HTTP transcript format:
-
-  HTTP/2 200 OK
-  Header: Value
-  Header: Value
-
-  {"json":"here"}
+(LAN & Wi‑Fi), either:
+  - SEQUENTIALLY,
+  - CONCURRENT per iteration (each pair at the same instant), or
+  - CONCURRENT **BURST-ALL** (ALL iterations fired at ONE instant).
 
 Features:
 - Bind per path by LOCAL IP (requests) or INTERFACE NAME (pycurl)
 - Show PUBLIC IP via https://ifconfig.io/ip (per path)
-- EXACT simultaneous fire with a start BARRIER (concurrent mode)
+- EXACT simultaneous fire with a start BARRIER
 - Iterations with index-suffixed outputs (.001, .002, …)
 - Decode Content‑Encoding: br/gzip/deflate (Brotli via optional package)
 - Proxy support: --proxy http://127.0.0.1:8080
@@ -24,10 +19,13 @@ Features:
   * --verify-tls ON  => verify certs
   * --verify-tls OFF => suppress InsecureRequestWarning automatically
 - Colorized console (colorama)
+
+New:
+- --burst-all: when combined with --send-mode concurrent, fires *all* requests
+  (2 x iterations) at the exact same instant.
 """
 
 import argparse
-import base64  # (kept if you want to extend later)
 import json
 import re
 import sys
@@ -36,7 +34,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -49,7 +47,7 @@ try:
 except Exception:
     _HAS_PYCURL = False
 
-# Optional: Brotli support for Content-Encoding: br
+# Optional: Brotli support
 import zlib
 try:
     import brotli  # type: ignore
@@ -119,7 +117,7 @@ def split_host_port(hostport: str, default_port: int) -> Tuple[str, int]:
     m = re.match(r"^\[(.+)\]:(\d+)$", hostport)  # IPv6 with port: [::1]:8443
     if m:
         return m.group(1), int(m.group(2))
-    if ":" in hostport and hostport.rsplit(":", 1)[1].isdigit():  # host:port
+    if ":" in hostport and hostport.rsplit(":", 1)[1].isdigit():
         host, port_str = hostport.rsplit(":", 1)
         return host, int(port_str)
     return hostport.strip("[]"), default_port
@@ -128,10 +126,7 @@ def split_host_port(hostport: str, default_port: int) -> Tuple[str, int]:
 def build_url(raw: RawRequest, scheme: str) -> Tuple[str, str, int, str]:
     """
     Build (scheme, host, port, path) from the raw request + chosen scheme.
-
-    Priority:
-    1) If start-line target is absolute URL -> parse scheme/host/port/path from it.
-    2) Else use Host header + provided scheme, default ports 80/443.
+    If the request line has an absolute URL, use it; otherwise use Host + scheme.
     """
     target = raw.start_line_target
 
@@ -160,7 +155,7 @@ def build_url(raw: RawRequest, scheme: str) -> Tuple[str, str, int, str]:
 def parse_proxy(proxy_url: Optional[str]):
     """
     Return a requests-style proxies dict and pycurl args for a given proxy URL.
-    Supports http://host:port or https://host:port; we use HTTP CONNECT for https.
+    Supports http://host:port (and https://host:port treated as HTTP CONNECT).
     """
     if not proxy_url:
         return None, None
@@ -332,7 +327,6 @@ def send_via_interface(iface: str, method: str, url: str, headers: Dict[str, str
     status = c.getinfo(c.RESPONSE_CODE)
     c.close()
 
-    # Parse raw header text: capture status line and header lines
     header_text = header_buf.getvalue().decode("utf-8", errors="replace").replace("\r\n", "\n")
     lines = [ln for ln in header_text.split("\n") if ln.strip()]
 
@@ -345,20 +339,17 @@ def send_via_interface(iface: str, method: str, url: str, headers: Dict[str, str
         if ":" in ln:
             raw_header_lines.append(ln.strip())
 
-    # Also build a dict of headers (last occurrence wins)
     headers_dict: Dict[str, str] = {}
     for ln in raw_header_lines:
         k, v = ln.split(":", 1)
         headers_dict[k.strip()] = v.strip()
 
-    # Reason phrase: best-effort parse from status line
     reason = ""
     if raw_status_line:
         m = re.match(r"^HTTP/\d(?:\.\d)?\s+(\d{3})\s+(.*)$", raw_status_line)
         if m:
             reason = m.group(2)
 
-    # HTTP version string: from status line if available
     http_version = raw_status_line.split()[0] if raw_status_line else "HTTP/1.1"
 
     return RespInfo(
@@ -421,40 +412,29 @@ def write_http_transcript(out_path: str, resp: RespInfo):
     """
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Build status line
     status_line = resp.raw_status_line or f"{resp.http_version} {resp.status} {resp.reason or ''}".strip()
 
-    # Build header lines
     if resp.raw_header_lines:
         header_lines = resp.raw_header_lines
     else:
-        # Use dict items; requests canonicalizes keys to Title-Case
         header_lines = [f"{k}: {v}" for k, v in resp.headers.items()]
 
-    # Decode body if possible
     decoded_bytes, ctype, _note = decode_body_if_possible(resp.body, resp.headers)
 
-    # Try to write body as UTF‑8 text; otherwise write raw bytes
     try:
-        body_is_text = True
         body_text = decoded_bytes.decode("utf-8")
         body_bytes_to_write = body_text.encode("utf-8")
     except UnicodeDecodeError:
-        body_is_text = False
         body_bytes_to_write = decoded_bytes
 
-    # Compose header block
     header_block = status_line + "\n" + "\n".join(header_lines) + "\n\n"
-    header_bytes = header_block.encode("utf-8")
-
-    # Write transcript (binary-safe)
     with open(out_path, "wb") as f:
-        f.write(header_bytes)
+        f.write(header_block.encode("utf-8"))
         f.write(body_bytes_to_write)
 
 
 def numbered_name(base: str, idx: int) -> str:
-    """Turn 'foo.http' + 1 -> 'foo.001.http' (or keep suffix)."""
+    """Turn 'foo.http' + 1 -> 'foo.001.http'."""
     p = Path(base)
     stem, suf = p.stem, p.suffix
     return str(p.with_name(f"{stem}.{idx:03d}{suf}"))
@@ -483,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lan-scheme", choices=["http", "https"], help="Scheme for LAN request if not absolute in file.")
     p.add_argument("--wifi-scheme", choices=["http", "https"], help="Scheme for Wi‑Fi request if not absolute in file.")
 
-    # Output (HTTP transcript file per iteration)
+    # Output (HTTP transcript per iteration)
     p.add_argument("--lan-out", required=True, help="Base file to write LAN HTTP transcript (e.g., ./out/lan.http).")
     p.add_argument("--wifi-out", required=True, help="Base file to write Wi‑Fi HTTP transcript (e.g., ./out/wifi.http).")
 
@@ -496,11 +476,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Concurrency / Race
     p.add_argument("--send-mode", choices=["sequential", "concurrent"], default="sequential",
-                   help="Sequential (LAN then Wi‑Fi) or concurrent (exact same time). Default: sequential.")
+                   help="Sequential (LAN then Wi‑Fi) or concurrent (per-iteration or burst-all). Default: sequential.")
     p.add_argument("--iterations", type=int, default=1,
-                   help="Number of iterations (pairs). Each iteration fires both at the same instant in concurrent mode.")
+                   help="Number of iterations (pairs).")
     p.add_argument("--sleep-ms-between-iters", type=int, default=0,
                    help="Pause in milliseconds between iterations (default 0).")
+    p.add_argument("--burst-all", action="store_true",
+                   help="With --send-mode concurrent: fire ALL iterations at the SAME instant (2*iterations total requests).")
 
     return p
 
@@ -508,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
 def looks_like_ip(s: str) -> bool:
     """Heuristic: IPv4 literal or simple IPv6 literal."""
     if ":" in s and "." not in s:
-        return True  # could be IPv6 (or iface name—iface handled elsewhere)
+        return True
     parts = s.split(".")
     if len(parts) == 4 and all(p.isdigit() and 0 <= int(p) <= 255 for p in parts):
         return True
@@ -571,7 +553,7 @@ def main():
     print(Fore.CYAN + f"[i] OS: {args.os}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] LAN binding:  {'IP' if lan_is_ip else 'iface'} = {lan_binding}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] Wi‑Fi binding: {'IP' if wifi_is_ip else 'iface'} = {wifi_binding}" + Style.RESET_ALL)
-    print(Fore.CYAN + f"[i] Mode: {args.send_mode} | Iterations: {args.iterations} | Sleep(ms): {args.sleep_ms_between_iters}" + Style.RESET_ALL)
+    print(Fore.CYAN + f"[i] Mode: {args.send_mode} | Iterations: {args.iterations} | Sleep(ms): {args.sleep_ms_between_iters} | Burst-all: {args.burst_all}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] TLS verify: {'ON' if args.verify_tls else 'OFF'} | Proxy: {args.proxy or 'None'}" + Style.RESET_ALL)
     print("")
 
@@ -607,53 +589,82 @@ def main():
             return send_via_interface(wifi_binding, wifi_req.method, wifi_url, wifi_headers, wifi_req.body,
                                       verify_tls=args.verify_tls, timeout=args.timeout, pycurl_proxy=pycurl_proxy)
 
-    def persist(label: str, base_out: str, idx: int, method: str, url: str, info: RespInfo):
+    def persist(label: str, base_out: str, idx: int, info: RespInfo):
         out_i = numbered_name(base_out, idx)
         write_http_transcript(out_i, info)
         color = Fore.GREEN if 200 <= info.status < 400 else Fore.YELLOW if info.status else Fore.RED
         print(f"    {label:<4} -> {color}{info.status}{Style.RESET_ALL} (saved {out_i})")
 
-    # Sequential mode
+    # ---- SEQUENTIAL MODE ----
     if args.send_mode == "sequential":
         for i in range(1, args.iterations + 1):
             print(Fore.BLUE + f"\n[iter {i}/{args.iterations}] Sending FIRST via LAN ..." + Style.RESET_ALL)
             info = send_lan_once()
             print(f"    {lan_req.method} {lan_url}")
-            persist("LAN", args.lan_out, i, lan_req.method, lan_url, info)
+            persist("LAN", args.lan_out, i, info)
 
             print(Fore.BLUE + f"[iter {i}/{args.iterations}] Sending SECOND via Wi‑Fi ..." + Style.RESET_ALL)
             info = send_wifi_once()
             print(f"    {wifi_req.method} {wifi_url}")
-            persist("Wi‑Fi", args.wifi_out, i, wifi_req.method, wifi_url, info)
+            persist("Wi‑Fi", args.wifi_out, i, info)
 
             if i < args.iterations and args.sleep_ms_between_iters > 0:
                 time.sleep(args.sleep_ms_between_iters / 1000.0)
 
-    # Concurrent (race) mode
+    # ---- CONCURRENT MODE ----
     else:
-        print(Fore.BLUE + "\n[*] CONCURRENT mode: firing both requests at the EXACT same instant per iteration." + Style.RESET_ALL)
-        for i in range(1, args.iterations + 1):
-            print(Fore.BLUE + f"\n[iter {i}/{args.iterations}] Arming threads ..." + Style.RESET_ALL)
+        if args.burst_all and args.iterations > 1:
+            # BURST-ALL: Fire ALL requests for ALL iterations at once
+            total_threads = args.iterations * 2
+            print(Fore.BLUE + f"\n[*] CONCURRENT BURST-ALL: arming {total_threads} threads to fire at the SAME instant." + Style.RESET_ALL)
             from threading import Barrier
-            start_barrier = Barrier(2)
+            start_barrier = Barrier(total_threads)
 
+            tasks = []  # (label, index, future)
             def run_with_barrier(sender_func):
                 start_barrier.wait()
                 return sender_func()
 
-            with ThreadPoolExecutor(max_workers=2) as ex:
-                fut_lan = ex.submit(run_with_barrier, send_lan_once)
-                fut_wifi = ex.submit(run_with_barrier, send_wifi_once)
-                info_lan = fut_lan.result()
-                info_wifi = fut_wifi.result()
+            with ThreadPoolExecutor(max_workers=total_threads) as ex:
+                # schedule all LAN+WiFi jobs for all iterations
+                for i in range(1, args.iterations + 1):
+                    fut_lan = ex.submit(run_with_barrier, send_lan_once)
+                    fut_wifi = ex.submit(run_with_barrier, send_wifi_once)
+                    tasks.append(("LAN", i, fut_lan))
+                    tasks.append(("Wi‑Fi", i, fut_wifi))
 
-            print(f"    {lan_req.method} {lan_url}")
-            persist("LAN", args.lan_out, i, lan_req.method, lan_url, info_lan)
-            print(f"    {wifi_req.method} {wifi_url}")
-            persist("Wi‑Fi", args.wifi_out, i, wifi_req.method, wifi_url, info_wifi)
+                # collect as they finish (order doesn't matter for save; we keep .NNN per iteration)
+                for label, idx, fut in tasks:
+                    info = fut.result()
+                    print(f"    {('LAN' if label=='LAN' else 'Wi‑Fi'):>4} {idx:03d}: {info.status}")
+                    if label == "LAN":
+                        persist("LAN", args.lan_out, idx, info)
+                    else:
+                        persist("Wi‑Fi", args.wifi_out, idx, info)
 
-            if i < args.iterations and args.sleep_ms_between_iters > 0:
-                time.sleep(args.sleep_ms_between_iters / 1000.0)
+        else:
+            # Per-iteration simultaneous PAIRS (original concurrent behavior)
+            print(Fore.BLUE + "\n[*] CONCURRENT mode: firing both requests at the SAME instant per iteration." + Style.RESET_ALL)
+            from threading import Barrier
+            for i in range(1, args.iterations + 1):
+                print(Fore.BLUE + f"\n[iter {i}/{args.iterations}] Arming pair ..." + Style.RESET_ALL)
+                start_barrier = Barrier(2)
+
+                def run_with_barrier(sender_func):
+                    start_barrier.wait()
+                    return sender_func()
+
+                with ThreadPoolExecutor(max_workers=2) as ex:
+                    fut_lan = ex.submit(run_with_barrier, send_lan_once)
+                    fut_wifi = ex.submit(run_with_barrier, send_wifi_once)
+                    info_lan = fut_lan.result()
+                    info_wifi = fut_wifi.result()
+
+                persist("LAN", args.lan_out, i, info_lan)
+                persist("Wi‑Fi", args.wifi_out, i, info_wifi)
+
+                if i < args.iterations and args.sleep_ms_between_iters > 0:
+                    time.sleep(args.sleep_ms_between_iters / 1000.0)
 
     print(Fore.GREEN + "\nDone." + Style.RESET_ALL)
 
