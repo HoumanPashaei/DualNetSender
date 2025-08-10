@@ -1,32 +1,26 @@
 #!/usr/bin/env python3
 """
-dual_net_sender.py
-
-Send TWO raw HTTP requests (Burp-style files) via DIFFERENT network paths
-(LAN & Wi‑Fi), either:
-  - SEQUENTIALLY,
-  - CONCURRENT per iteration (each pair at the same instant), or
-  - CONCURRENT **BURST-ALL** (ALL iterations fired at ONE instant).
-
-Features:
-- Bind per path by LOCAL IP (requests) or INTERFACE NAME (pycurl)
-- Show PUBLIC IP via https://ifconfig.io/ip (per path)
-- EXACT simultaneous fire with a start BARRIER
-- Iterations with index-suffixed outputs (.001, .002, …)
-- Decode Content‑Encoding: br/gzip/deflate (Brotli via optional package)
-- Proxy support: --proxy http://127.0.0.1:8080
-- TLS:
-  * --verify-tls ON  => verify certs
-  * --verify-tls OFF => suppress InsecureRequestWarning automatically
-- Colorized console (colorama)
-
-New:
-- --burst-all: when combined with --send-mode concurrent, fires *all* requests
-  (2 x iterations) at the exact same instant.
+DualNetSender.py — multi-connection race tester for pentesters & bug bounty
 """
+# Send TWO raw HTTP requests via DIFFERENT network paths (LAN & Wi‑Fi), either:
+#   - SEQUENTIALLY,
+#   - CONCURRENT per iteration (pairwise barrier),
+#   - CONCURRENT **MULTI-CONNECTION**: fire ALL requests at ONE instant.
+#
+# Features:
+# - Bind per path by LOCAL IP (requests) or INTERFACE NAME (pycurl)
+# - Show PUBLIC IP via https://ifconfig.io/ip (per path)
+# - Barrier for simultaneous fire (pairwise or multi-connection)
+# - Iterations with index-suffixed outputs (.001, .002, …)
+# - Decode Content‑Encoding: br/gzip/deflate (Brotli via optional package)
+# - Proxy support: --proxy / -p
+# - TLS: --verify-tls / -vt (verify), else suppress warning
+# - Colorized console (colorama)
+#
+# Short flags:
+#   -O, -L, -W, -lq, -wq, -ls, -ws, -lo, -wo, -vt, -t, -p, -sm, -i, -si, -mc
 
 import argparse
-import json
 import re
 import sys
 import time
@@ -34,7 +28,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -75,7 +69,7 @@ class RawRequest:
 
 def parse_raw_request_file(path: str) -> RawRequest:
     """
-    Parse a raw HTTP request file:
+    Parse a raw HTTP request file (Burp style).
     - First line: "METHOD SP request-target SP HTTP/1.x"
     - Headers: one per line until blank line
     - Body: raw bytes after the first blank line
@@ -124,10 +118,7 @@ def split_host_port(hostport: str, default_port: int) -> Tuple[str, int]:
 
 
 def build_url(raw: RawRequest, scheme: str) -> Tuple[str, str, int, str]:
-    """
-    Build (scheme, host, port, path) from the raw request + chosen scheme.
-    If the request line has an absolute URL, use it; otherwise use Host + scheme.
-    """
+    """Build (scheme, host, port, path) from the raw request + chosen scheme."""
     target = raw.start_line_target
 
     if target.lower().startswith(("http://", "https://")):
@@ -153,10 +144,7 @@ def build_url(raw: RawRequest, scheme: str) -> Tuple[str, str, int, str]:
 # =========================
 
 def parse_proxy(proxy_url: Optional[str]):
-    """
-    Return a requests-style proxies dict and pycurl args for a given proxy URL.
-    Supports http://host:port (and https://host:port treated as HTTP CONNECT).
-    """
+    """Return a requests-style proxies dict and pycurl args for a given proxy URL."""
     if not proxy_url:
         return None, None
     proxies = {"http": proxy_url, "https": proxy_url}
@@ -189,10 +177,10 @@ class RespInfo:
     headers: Dict[str, str]
     body: bytes
     elapsed_ms: float
-    http_version: str           # e.g., "HTTP/1.1" or "HTTP/2"
-    reason: str                 # e.g., "OK"
+    http_version: str
+    reason: str
     raw_status_line: Optional[str] = None
-    raw_header_lines: Optional[List[str]] = None  # if available (pycurl)
+    raw_header_lines: Optional[List[str]] = None
 
 
 def http_version_from_requests(resp) -> str:
@@ -203,7 +191,7 @@ def http_version_from_requests(resp) -> str:
         return "HTTP/1.1"
     if v == 20:
         return "HTTP/2"
-    return "HTTP/1.1"  # fallback
+    return "HTTP/1.1"
 
 
 def session_bound_to_ip(local_ip: str, verify_tls: bool, proxies: Optional[Dict[str, str]]) -> requests.Session:
@@ -228,7 +216,6 @@ def public_ip_via_local_ip(local_ip: str, timeout: int, verify_tls: bool, proxie
 
 
 def send_via_local_ip(local_ip: str, method: str, url: str, headers: Dict[str, str], body: bytes, verify_tls: bool, timeout: int, proxies: Optional[Dict[str, str]]) -> RespInfo:
-    """Send via requests bound to local_ip. Return detailed RespInfo."""
     s = session_bound_to_ip(local_ip, verify_tls=verify_tls, proxies=proxies)
     t0 = time.perf_counter()
     try:
@@ -255,11 +242,10 @@ def send_via_local_ip(local_ip: str, method: str, url: str, headers: Dict[str, s
 
 
 # =========================
-# Binding by Interface (pycurl)
+# Binding by interface (pycurl)
 # =========================
 
 def public_ip_via_interface(iface: str, timeout: int, verify_tls: bool, pycurl_proxy: Optional[Dict[str, str]]) -> Tuple[int, str]:
-    """GET https://ifconfig.io/ip while bound to a specific interface (requires pycurl)."""
     if not _HAS_PYCURL:
         raise RuntimeError("pycurl not installed; interface binding requires: pip install pycurl")
     buf = BytesIO()
@@ -281,7 +267,6 @@ def public_ip_via_interface(iface: str, timeout: int, verify_tls: bool, pycurl_p
 
 
 def send_via_interface(iface: str, method: str, url: str, headers: Dict[str, str], body: bytes, verify_tls: bool, timeout: int, pycurl_proxy: Optional[Dict[str, str]]) -> RespInfo:
-    """Send via pycurl bound to interface. Return detailed RespInfo (with raw header lines & status line)."""
     if not _HAS_PYCURL:
         raise RuntimeError("pycurl not installed; interface binding requires: pip install pycurl")
 
@@ -368,48 +353,36 @@ def send_via_interface(iface: str, method: str, url: str, headers: Dict[str, str
 # Decoding & writing HTTP transcript
 # ==========
 
-def decode_body_if_possible(body: bytes, headers: Dict[str, str]) -> Tuple[bytes, Optional[str], Optional[str]]:
-    """
-    Decode compressed response bodies based on Content-Encoding.
-    Returns: (decoded_bytes_or_original, detected_mime, note)
-    """
+def decode_body_if_possible(body: bytes, headers: Dict[str, str]):
     h = {k.lower(): v for k, v in headers.items()}
     enc = (h.get("content-encoding", "") or "").lower()
-    ctype = (h.get("content-type", "") or "").split(";", 1)[0].strip().lower()
 
     if enc == "br":
         if _HAS_BROTLI:
             try:
-                return brotli.decompress(body), ctype, "decoded br"
+                return brotli.decompress(body)
             except Exception:
-                return body, ctype, "brotli decode failed (kept raw)"
+                return body
         else:
-            return body, ctype, "brotli not installed (kept raw)"
+            return body
 
     if enc == "gzip":
         try:
-            return zlib.decompress(body, zlib.MAX_WBITS | 16), ctype, "decoded gzip"
+            return zlib.decompress(body, zlib.MAX_WBITS | 16)
         except Exception:
-            return body, ctype, "gzip decode failed (kept raw)"
+            return body
     elif enc == "deflate":
         for wbits in (zlib.MAX_WBITS, -zlib.MAX_WBITS):
             try:
-                return zlib.decompress(body, wbits), ctype, "decoded deflate"
+                return zlib.decompress(body, wbits)
             except Exception:
                 continue
-        return body, ctype, "deflate decode failed (kept raw)"
+        return body
 
-    return body, ctype, None
+    return body
 
 
 def write_http_transcript(out_path: str, resp: RespInfo):
-    """
-    Write ONE file with:
-      Status line
-      Headers
-      blank line
-      Body (decoded if possible, else raw bytes)
-    """
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
     status_line = resp.raw_status_line or f"{resp.http_version} {resp.status} {resp.reason or ''}".strip()
@@ -419,7 +392,7 @@ def write_http_transcript(out_path: str, resp: RespInfo):
     else:
         header_lines = [f"{k}: {v}" for k, v in resp.headers.items()]
 
-    decoded_bytes, ctype, _note = decode_body_if_possible(resp.body, resp.headers)
+    decoded_bytes = decode_body_if_possible(resp.body, resp.headers)
 
     try:
         body_text = decoded_bytes.decode("utf-8")
@@ -434,7 +407,6 @@ def write_http_transcript(out_path: str, resp: RespInfo):
 
 
 def numbered_name(base: str, idx: int) -> str:
-    """Turn 'foo.http' + 1 -> 'foo.001.http'."""
     p = Path(base)
     stem, suf = p.stem, p.suffix
     return str(p.with_name(f"{stem}.{idx:03d}{suf}"))
@@ -446,49 +418,43 @@ def numbered_name(base: str, idx: int) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Send two Burp-style raw HTTP requests via different network paths (LAN & Wi‑Fi).",
-        formatter_class=argparse.RawTextHelpFormatter
+        description="Send two Burp-style raw HTTP requests via different network paths (LAN & Wi‑Fi).",        formatter_class=argparse.RawTextHelpFormatter
     )
-    p.add_argument("--os", choices=["windows", "linux", "macos"], required=True, help="Operating system (for logs/validation).")
+    p.add_argument("-O", "--os", choices=["windows", "linux", "macos"], required=True, help="Operating system (for logs/validation).")
 
     # Network bindings: each can be a LOCAL IP or an INTERFACE NAME
-    p.add_argument("--lan", required=True, help="LAN binding (local IP or interface name; e.g., '192.168.1.23' or 'eth0').")
-    p.add_argument("--wifi", required=True, help="Wi‑Fi binding (local IP or interface name; e.g., '10.0.0.55' or 'wlan0').")
+    p.add_argument("-L", "--lan", required=True, help="LAN binding (local IP or interface; e.g., '192.168.1.23' or 'eth0').")
+    p.add_argument("-W", "--wifi", required=True, help="Wi‑Fi binding (local IP or interface; e.g., '10.0.0.55' or 'wlan0').")
 
     # Raw request files
-    p.add_argument("--lan-request", required=True, help="Path to raw HTTP request file for LAN.")
-    p.add_argument("--wifi-request", required=True, help="Path to raw HTTP request file for Wi‑Fi.")
+    p.add_argument("-lq", "--lan-request", required=True, help="Path to raw HTTP request file for LAN.")
+    p.add_argument("-wq", "--wifi-request", required=True, help="Path to raw HTTP request file for Wi‑Fi.")
 
     # Scheme selection (if the start-line is not absolute URL)
-    p.add_argument("--lan-scheme", choices=["http", "https"], help="Scheme for LAN request if not absolute in file.")
-    p.add_argument("--wifi-scheme", choices=["http", "https"], help="Scheme for Wi‑Fi request if not absolute in file.")
+    p.add_argument("-ls", "--lan-scheme", choices=["http", "https"], help="Scheme for LAN request if not absolute in file.")
+    p.add_argument("-ws", "--wifi-scheme", choices=["http", "https"], help="Scheme for Wi‑Fi request if not absolute in file.")
 
     # Output (HTTP transcript per iteration)
-    p.add_argument("--lan-out", required=True, help="Base file to write LAN HTTP transcript (e.g., ./out/lan.http).")
-    p.add_argument("--wifi-out", required=True, help="Base file to write Wi‑Fi HTTP transcript (e.g., ./out/wifi.http).")
+    p.add_argument("-lo", "--lan-out", required=True, help="Base file to write LAN HTTP transcript (e.g., ./out/lan.http)." )
+    p.add_argument("-wo", "--wifi-out", required=True, help="Base file to write Wi‑Fi HTTP transcript (e.g., ./out/wifi.http)." )
 
     # TLS & timeout
-    p.add_argument("--verify-tls", action="store_true", default=False, help="Enable TLS certificate verification (default: off).")
-    p.add_argument("--timeout", type=int, default=20, help="Per-request timeout in seconds (default: 20).")
+    p.add_argument("-vt", "--verify-tls", action="store_true", default=False, help="Enable TLS certificate verification (default: off)." )
+    p.add_argument("-t", "--timeout", type=int, default=20, help="Per-request timeout in seconds (default: 20)." )
 
     # Proxy
-    p.add_argument("--proxy", help="Intercept proxy URL for both http/https (e.g., http://127.0.0.1:8080).")
+    p.add_argument("-p", "--proxy", help="Intercept proxy URL for both http/https (e.g., http://127.0.0.1:8080)." )
 
     # Concurrency / Race
-    p.add_argument("--send-mode", choices=["sequential", "concurrent"], default="sequential",
-                   help="Sequential (LAN then Wi‑Fi) or concurrent (per-iteration or burst-all). Default: sequential.")
-    p.add_argument("--iterations", type=int, default=1,
-                   help="Number of iterations (pairs).")
-    p.add_argument("--sleep-ms-between-iters", type=int, default=0,
-                   help="Pause in milliseconds between iterations (default 0).")
-    p.add_argument("--burst-all", action="store_true",
-                   help="With --send-mode concurrent: fire ALL iterations at the SAME instant (2*iterations total requests).")
+    p.add_argument("-sm", "--send-mode", choices=["sequential", "concurrent"], default="sequential",                   help="Sequential (LAN then Wi‑Fi) or concurrent (pairwise or multi-connection). Default: sequential.")
+    p.add_argument("-i", "--iterations", type=int, default=1, help="Number of iterations (pairs)." )
+    p.add_argument("-si", "--sleep-ms-between-iters", type=int, default=0, help="Pause in milliseconds between iterations (default 0)." )
+    p.add_argument("-mc", "--multi-connection", action="store_true",                   help="With --send-mode concurrent: fire ALL connections at the SAME instant (2*iterations total)." )
 
     return p
 
 
 def looks_like_ip(s: str) -> bool:
-    """Heuristic: IPv4 literal or simple IPv6 literal."""
     if ":" in s and "." not in s:
         return True
     parts = s.split(".")
@@ -498,7 +464,6 @@ def looks_like_ip(s: str) -> bool:
 
 
 def prompt_scheme(name: str) -> str:
-    """Prompt for http/https if a scheme is required and not provided."""
     while True:
         val = input(f"{Fore.CYAN}Choose scheme for {name} (http/https): {Style.RESET_ALL}").strip().lower()
         if val in ("http", "https"):
@@ -553,7 +518,7 @@ def main():
     print(Fore.CYAN + f"[i] OS: {args.os}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] LAN binding:  {'IP' if lan_is_ip else 'iface'} = {lan_binding}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] Wi‑Fi binding: {'IP' if wifi_is_ip else 'iface'} = {wifi_binding}" + Style.RESET_ALL)
-    print(Fore.CYAN + f"[i] Mode: {args.send_mode} | Iterations: {args.iterations} | Sleep(ms): {args.sleep_ms_between_iters} | Burst-all: {args.burst_all}" + Style.RESET_ALL)
+    print(Fore.CYAN + f"[i] Mode: {args.send_mode} | Iterations: {args.iterations} | Sleep(ms): {args.sleep_ms_between_iters} | Multi-connection: {args.multi_connection}" + Style.RESET_ALL)
     print(Fore.CYAN + f"[i] TLS verify: {'ON' if args.verify_tls else 'OFF'} | Proxy: {args.proxy or 'None'}" + Style.RESET_ALL)
     print("")
 
@@ -613,10 +578,10 @@ def main():
 
     # ---- CONCURRENT MODE ----
     else:
-        if args.burst_all and args.iterations > 1:
-            # BURST-ALL: Fire ALL requests for ALL iterations at once
+        if args.multi_connection and args.iterations > 1:
+            # MULTI-CONNECTION: Fire ALL requests for ALL iterations at once
             total_threads = args.iterations * 2
-            print(Fore.BLUE + f"\n[*] CONCURRENT BURST-ALL: arming {total_threads} threads to fire at the SAME instant." + Style.RESET_ALL)
+            print(Fore.BLUE + f"\n[*] CONCURRENT MULTI-CONNECTION: arming {total_threads} threads to fire at the SAME instant." + Style.RESET_ALL)
             from threading import Barrier
             start_barrier = Barrier(total_threads)
 
@@ -626,14 +591,12 @@ def main():
                 return sender_func()
 
             with ThreadPoolExecutor(max_workers=total_threads) as ex:
-                # schedule all LAN+WiFi jobs for all iterations
                 for i in range(1, args.iterations + 1):
                     fut_lan = ex.submit(run_with_barrier, send_lan_once)
                     fut_wifi = ex.submit(run_with_barrier, send_wifi_once)
                     tasks.append(("LAN", i, fut_lan))
                     tasks.append(("Wi‑Fi", i, fut_wifi))
 
-                # collect as they finish (order doesn't matter for save; we keep .NNN per iteration)
                 for label, idx, fut in tasks:
                     info = fut.result()
                     print(f"    {('LAN' if label=='LAN' else 'Wi‑Fi'):>4} {idx:03d}: {info.status}")
@@ -643,7 +606,7 @@ def main():
                         persist("Wi‑Fi", args.wifi_out, idx, info)
 
         else:
-            # Per-iteration simultaneous PAIRS (original concurrent behavior)
+            # Per-iteration simultaneous PAIRS
             print(Fore.BLUE + "\n[*] CONCURRENT mode: firing both requests at the SAME instant per iteration." + Style.RESET_ALL)
             from threading import Barrier
             for i in range(1, args.iterations + 1):
